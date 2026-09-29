@@ -35,3 +35,18 @@ python3 tools/lab/regress.py save mine
 builds the game for the computer (it takes `clang++`), plays 22 scenes by
 script and keeps a fingerprint of each. `check mine` plays them again and
 says which differ.
+
+## The data for the flash chip
+
+The build makes it: `build/game/fxdata.bin`. It is not kept with the
+sources. A copy as it was built last is
+[download/fxdata.bin](../download/fxdata.bin); the same file is inside
+`SmallTheftAuto.arduboy`, which is a zip. What is where in it:
+`SmallTheftAuto/fxdata.h`.
+
+## On another machine
+
+`host/host_main.cpp` is the game on a computer, and shows what a machine has
+to supply: the flash chip, the buttons, the clock, the sound and the picture.
+What is written in assembly for the console (`render.S`, `fastmath.S`) has
+its counterpart in C++ in `engine.h`; the desktop build uses that.
