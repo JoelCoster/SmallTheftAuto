@@ -1,0 +1,112 @@
+<!doctype html>
+<!--
+  Local wrapper around the Ardens web emulator (by Peter Brown, tiberiusbrown.github.io/Ardens).
+  The emulator itself is loaded from its official page at run time; this wrapper only exists so
+  that freshly built files can be loaded from this machine:
+
+      http://localhost:8642/ardens.html?pkg=game/SmallTheftAuto.arduboy
+
+  Any other URL parameter is passed through to the emulator (for example g=none, p=default).
+  Set app=Ardens to load the full debugger instead of the player.
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Small Theft Auto in Ardens</title>
+  <style>
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: #1a1a1a; }
+    #canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; display: block;
+              image-rendering: pixelated; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+  <script>
+    // Browsers stop animation frames (and slow timers) for pages that are not
+    // visible, which would freeze the emulator whenever this pane is in the
+    // background. Drive frames from a worker's timer instead: those keep running.
+    (function () {
+      const src = 'setInterval(function () { postMessage(0); }, 16);';
+      const worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+      let queue = [];
+      let nextId = 0;
+      worker.onmessage = function () {
+        const run = queue;
+        queue = [];
+        const now = performance.now();
+        for (const [, cb] of run) { try { cb(now); } catch (e) { console.error(e); } }
+      };
+      window.requestAnimationFrame = function (cb) { queue.push([++nextId, cb]); return nextId; };
+      window.cancelAnimationFrame = function (id) { queue = queue.filter(e => e[0] !== id); };
+    })();
+
+    const BASE = 'https://tiberiusbrown.github.io/Ardens/';
+    const query = new URLSearchParams(location.search);
+    const app = query.get('app') || 'ArdensPlayer';
+    window.ardensStatus = 'starting';
+
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      locateFile: function (path) { return BASE + path; }
+    };
+    Module.canvas.addEventListener('click', () => Module.canvas.focus());
+
+    function loadFile(param, fname, fdata) {
+      const ptr = Module._malloc(fdata.length);
+      Module.HEAPU8.set(fdata, ptr);
+      const r = Module.ccall('load_file', 'number', ['string', 'string', 'number', 'number'],
+                             [param, fname, ptr, fdata.length]);
+      Module._free(ptr);
+      return r;
+    }
+
+    async function fetchLocal(path) {
+      const rsp = await fetch(path + '?t=' + Date.now());
+      if (!rsp.ok) throw new Error(path + ': HTTP ' + rsp.status);
+      return new Uint8Array(await rsp.arrayBuffer());
+    }
+
+    // The emulator takes one file per frame, and loading flash data resets the
+    // machine, so: program first, let a few frames pass, then the flash data.
+    function frames(n) {
+      return new Promise(resolve => {
+        let left = n;
+        const tick = () => { if (--left <= 0) resolve(); else requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+      });
+    }
+
+    async function reloadGame() {
+      const files = [];
+      const order = (query.get('order') || 'pkg,hex,bin').split(',');
+      for (const key of order) {
+        const f = query.get(key);
+        if (f) files.push([f, await fetchLocal(f)]);
+      }
+      // let the emulator finish starting up (it restores its own settings
+      // asynchronously and resets the machine when that completes)
+      await frames(90);
+      const loaded = [];
+      for (const [f, data] of files) {
+        loadFile('file', f.split('/').pop(), data);
+        loaded.push(f + ' (' + data.length + ' bytes)');
+        await frames(4);
+      }
+      window.ardensStatus = 'loaded: ' + loaded.join(', ');
+      return window.ardensStatus;
+    }
+
+    Module.onRuntimeInitialized = function () {
+      for (const [k, v] of query) {
+        if (['hex', 'bin', 'pkg', 'app', 'v', 'r', 'order'].includes(k)) continue;
+        Module.ccall('setparam', null, ['string', 'string'], [k, v]);
+      }
+      reloadGame().catch(e => { window.ardensStatus = 'error: ' + e.message; });
+    };
+
+    const s = document.createElement('script');
+    s.src = BASE + app + '.js';
+    document.body.appendChild(s);
+  </script>
+</body>
+</html>
