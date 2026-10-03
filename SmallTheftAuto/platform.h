@@ -55,6 +55,7 @@ extern uint8_t nav_over[NAV_ARROW_BYTES];
 // what the player has chosen on the settings page
 #define SET_SOUND 1
 #define SET_LED 2
+#define SET_MONO 4      // two shades instead of four: for panels that flicker with the four (the FX-C is said to)
 // the light next to the screen
 #define LIGHT_OFF 0
 #define LIGHT_RED 1
@@ -95,6 +96,7 @@ void save_load();          // what was kept: the settings, the money, the missio
 void save_store();
 static inline void sound_enable(bool on) { (void)on; }
 static inline void light(uint8_t which) { host_light = which; }
+static inline void display_shades(bool two) { (void)two; }
 
 #else
 // ---------------------------------------------------------------- console
@@ -103,11 +105,15 @@ static inline void light(uint8_t which) { host_light = which; }
 #define OLED_DC_BIT 4
 #define OLED_RST_BIT 7
 #define FLASH_CS_BIT 1
+#define FLASH_CS_BIT_E 2          // port E: the FX-C and the Mini keep SDA for the link cable
 
 extern volatile uint16_t plane_ticks;
 extern volatile uint8_t disp_plane;
 extern volatile uint8_t disp_wide;
 extern volatile uint8_t disp_nav;
+extern volatile uint8_t disp_mono;  // two shades: see display.S
+extern uint8_t flash_on_e;          // the chip answers on PE2 (an FX-C or a Mini), not on PD1
+void display_shades(bool two);      // four shades, or two
 extern uint16_t fx_page;          // where our data starts on the chip, in 256-byte pages
 
 // a byte takes 16 CPU cycles to shift out; idle through most of that, then
@@ -143,10 +149,7 @@ static ALWAYS_INLINE uint8_t fx_next_fast() {
 // the same as a call, for everywhere else: it is shorter
 uint8_t fx_next();
 
-static ALWAYS_INLINE void fx_end() {
-  PORTD |= _BV(FLASH_CS_BIT);
-  sei();
-}
+void fx_end();         // lets go of the chip's select line, whichever it is, and interrupts back on
 
 // so many bytes from there, in one go (no more than a few dozen: the display
 // has to wait meanwhile)

@@ -25,6 +25,14 @@
 ;   the distance  NAV_BOX_COLS columns from NAV_BOX_C0, 8 rows, taken from
 ;                 the picture the way a page is: left dots hi, right dots lo
 ;
+; With disp_mono set the picture is shown in two shades, for panels that do
+; not keep in step (the FX-C is said to be one). Every third run sends it,
+; the other two only count the clock. Level 3 is lit and level 0 dark as
+; before; the two levels in between are patterns over the two panel dots of
+; a view dot and two rows: level 2 a checkerboard, level 1 one dot in four
+; (the top left one). The panel is not parked then: disp_park says 64 rows
+; as well, so it scans by itself as it does for any other game.
+;
 ; Bytes go out back to back with no waiting on the SPI flag: one byte every 18
 ; CPU cycles, which is as fast as the hardware can shift them (a little slower
 ; does no harm, and happens where one run of columns ends and the next one
@@ -48,7 +56,11 @@ delay7:                                 ; rcall (3) + ret (4)
 ; rCOL columns of the 3D view, from X (hi) and Y (lo), in the plane that is
 ; due: bit 0 of rPLANE says hi|lo, bit 1 hi&lo, neither hi. Whichever it is
 ; takes the same time: an instruction that is skipped costs what it would have.
+; With rPLANE 3 (two shades) mono_run does the work.
 view_run:
+    cpi  rPLANE, 3
+    brne 1f
+    rjmp mono_run
 1:  ld   r24, X                         ; 2
     ld   r25, Y                         ; 2
     sbrc rPLANE, 0                      ; 1, or 2 when it skips
@@ -93,6 +105,9 @@ wide_run:
 ; bytes at Z, what to keep of the view and what to light up, for the left
 ; column of dots and for the right one
 over_run:
+    cpi  rPLANE, 3
+    brne 1f
+    rjmp mono_over_run
 1:  ld   r24, X                         ; 2
     ld   r25, Y                         ; 2
     sbrc rPLANE, 0                      ; 1, or 2
@@ -115,6 +130,68 @@ over_run:
     out  _SFR_IO_ADDR(SPDR), r24        ; 1   right column
     dec  rCOL                           ; 1
     brne 1b                             ; 2   (+15 at the loop top = 18)
+    ret
+
+; rCOL columns of the view in two shades: level 3 lit in both panel dots, level
+; 2 the top left and bottom right of the four dots of two rows, level 1 the
+; top left one. r23 holds level 3, rDOTS the left column, r25 the right one.
+mono_run:
+1:  ld   r24, X                         ; 2   hi
+    ld   r25, Y                         ; 2   lo
+    mov  r23, r24                       ; 1
+    and  r23, r25                       ; 1   level 3
+    mov  rDOTS, r24                     ; 1
+    eor  rDOTS, r25                     ; 1   levels 1 and 2
+    mov  r25, rDOTS                     ; 1
+    and  r25, r24                       ; 1   level 2 alone
+    andi rDOTS, 0x55                    ; 1   levels 1 and 2 in the even rows of the left column
+    or   rDOTS, r23                     ; 1
+    out  _SFR_IO_ADDR(SPDR), rDOTS      ; 1   left column
+    andi r25, 0xAA                      ; 1   level 2 in the odd rows of the right column
+    or   r25, r23                       ; 1
+    adiw r26, COLBYTES                  ; 2
+    adiw r28, COLBYTES                  ; 2
+    rcall delay7                        ; 7
+    rjmp .+0                            ; 2
+    rjmp .+0                            ; 2   (17 since the write)
+    out  _SFR_IO_ADDR(SPDR), r25        ; 1   right column
+    rjmp .+0                            ; 2
+    dec  rCOL                           ; 1
+    brne 1b                             ; 2   (+12 at the loop top = 17)
+    ret
+
+; the same with something laid over it, as over_run has it (a few cycles
+; slower than the bus needs, which does no harm)
+mono_over_run:
+1:  ld   r24, X                         ; 2
+    ld   r25, Y                         ; 2
+    mov  r23, r24                       ; 1
+    and  r23, r25                       ; 1   level 3
+    mov  rDOTS, r24                     ; 1
+    eor  rDOTS, r25                     ; 1   levels 1 and 2
+    mov  r25, rDOTS                     ; 1
+    and  r25, r24                       ; 1   level 2 alone
+    andi rDOTS, 0x55                    ; 1
+    or   rDOTS, r23                     ; 1   the left column of the view
+    ld   r24, Z+                        ; 2
+    and  rDOTS, r24                     ; 1   what to keep of it
+    ld   r24, Z+                        ; 2
+    or   rDOTS, r24                     ; 1   and what to light up
+    out  _SFR_IO_ADDR(SPDR), rDOTS      ; 1   left column
+    andi r25, 0xAA                      ; 1
+    or   r25, r23                       ; 1   the right column of the view
+    ld   r24, Z+                        ; 2
+    and  r25, r24                       ; 1
+    ld   r24, Z+                        ; 2
+    or   r25, r24                       ; 1
+    adiw r26, COLBYTES                  ; 2
+    adiw r28, COLBYTES                  ; 2
+    rjmp .+0                            ; 2
+    rjmp .+0                            ; 2
+    nop                                 ; 1   (17 since the write)
+    out  _SFR_IO_ADDR(SPDR), r25        ; 1   right column
+    dec  rCOL                           ; 1
+    brne 1b                             ; 2   (+18 at the loop top = 21)
     ret
 
 ; the same, second byte taken from memory
@@ -148,6 +225,7 @@ TIMER3_COMPA_vect:
     push rPLANE
     push rCOL
     push rDOTS
+    push r23
     push r26
     push r27
     push r28
@@ -155,8 +233,16 @@ TIMER3_COMPA_vect:
     push r30
     push r31
     clr  rZERO
+    lds  rPLANE, disp_plane
+    lds  r24, disp_mono
+    tst  r24
+    breq 1f                             ; four shades: every run sends one plane of three
+    tst  rPLANE
+    breq 0f
+    rjmp .Lclock                        ; two shades: the picture goes out every third run, the others only count
+0:  ldi  rPLANE, 3                      ; what the routines take as "two shades"
 
-    cbi  _SFR_IO_ADDR(PORTD), 6         ; select the display
+1:  cbi  _SFR_IO_ADDR(PORTD), 6         ; select the display
     ldi  r24, (1<<SPE)|(1<<MSTR)|(1<<DORD)
     out  _SFR_IO_ADDR(SPCR), r24
 
@@ -176,7 +262,6 @@ TIMER3_COMPA_vect:
     COMMAND_VAR 0x15, disp_release      ; A8 3F, bit-reversed
 
     ; ---- 3D view, bottom page first ---------------------------------------
-    lds  rPLANE, disp_plane
     ldi  rPAGE, COLBYTES
 3:  ldi  r26, lo8(fb_hi - 1)
     ldi  r27, hi8(fb_hi - 1)
@@ -228,6 +313,8 @@ TIMER3_COMPA_vect:
     in   r24, _SFR_IO_ADDR(SPDR)
 
     ; ---- next plane, frame clock -------------------------------------------
+.Lclock:
+    lds  rPLANE, disp_plane
     inc  rPLANE
     cpi  rPLANE, 3
     brlo 9f
@@ -245,6 +332,7 @@ TIMER3_COMPA_vect:
     pop  r28
     pop  r27
     pop  r26
+    pop  r23
     pop  rDOTS
     pop  rCOL
     pop  rPLANE

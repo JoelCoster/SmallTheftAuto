@@ -44,7 +44,7 @@ SCENES = [
     ("job-cops", 1000, {"DONE": "441", "SEED": "4", "PLAY": "at:209.2,205.5;wait:30;down;wait:20;b;wait:20;at:91,154.6;spree;flee;wait:100"}),
     ("job-no", 400, {"PLAY": "walk:91.4,154.6;down;wait:30;a;wait:30;map;wait:20;hold:80,50;wait:20;map;wait:30"}),
     ("job-over", 500, {"CASH": "250", "DONE": "210", "PLAY": "walk:91.4,154.6;down;wait:20;b;wait:30;map;wait:10;a;wait:20;"
-                                                             "hold:10,3;wait:10;hold:10,3;wait:20;b;wait:30;b;wait:30;a;wait:30;b;wait:60"}),
+                                                             "hold:10,3;wait:10;hold:10,3;wait:10;hold:10,3;wait:20;b;wait:30;b;wait:30;a;wait:30;b;wait:60"}),
 ]
 
 

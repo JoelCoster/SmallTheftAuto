@@ -11,7 +11,10 @@ I recorded some gameplay on my Arduboy FX: [video on YouTube](https://www.youtub
 
 Download [SmallTheftAuto.arduboy](download/SmallTheftAuto.arduboy).
 
-- Made for the original Arduboy FX. Not tried on the FX-C or the Mini.
+- Runs on the Arduboy FX and on the FX-C: it finds out which one it is on when
+  it starts. On the FX-C it starts in black and white, since the four shades
+  are known to flicker there; GRAYSCALE in the settings switches either way.
+  I don't have an FX-C myself, so that part is only tried in the emulator.
 - In the browser: drop the file on the
   [Ardens player](https://tiberiusbrown.github.io/Ardens/player.html).
 
@@ -25,7 +28,8 @@ Download [SmallTheftAuto.arduboy](download/SmallTheftAuto.arduboy).
 | A (lower) | With Up: sprint | Brake, reverse |
 | Down | Answer the telephone, get in | Get out |
 
-Left + Right opens the map.
+Left + Right opens the map. A on the title page or the map opens the
+settings: sound, police light, grayscale, start over.
 
 ## Build
 

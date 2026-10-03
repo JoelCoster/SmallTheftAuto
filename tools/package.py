@@ -5,7 +5,11 @@ Bundle the program and its flash data into one .arduboy package.
 A .arduboy file is a zip holding the .hex, the flash image and an info.json. It is
 what the Ardens emulator and the Arduboy flashing tools load in one go.
 
-  python3 tools/package.py build/game/SmallTheftAuto.ino.hex build/game/fxdata.bin build/game/SmallTheftAuto.arduboy
+  python3 tools/package.py build/game/SmallTheftAuto.ino.hex build/game/fxdata.bin build/game/SmallTheftAuto.arduboy [device]
+
+The device is ArduboyFX unless said otherwise; with ArduboyMini the Ardens
+emulator puts the flash chip on PE2, which is how the FX-C and the Mini have
+it (for trying that out; the game finds the chip on either).
 
 The title picture (assets/title.png) is what the console's game menu shows.
 It is drawn by tools/title.py.
@@ -17,6 +21,7 @@ TITLE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets",
 
 def main():
     hexf, binf, out = sys.argv[1:4]
+    device = sys.argv[4] if len(sys.argv) > 4 else "ArduboyFX"
     info = {
         "schemaVersion": 3,
         "title": "Small Theft Auto",
@@ -28,7 +33,7 @@ def main():
         "binaries": [{
             "title": "Small Theft Auto",
             "filename": "SmallTheftAuto.hex",
-            "device": "ArduboyFX",
+            "device": device,
             "flashdata": "fxdata.bin",
             "flashsave": "fxsave.bin",
             "cartImage": "title.png",

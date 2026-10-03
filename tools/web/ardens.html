@@ -7,6 +7,7 @@
       http://localhost:8642/ardens.html?pkg=game/SmallTheftAuto.arduboy
 
   Any other URL parameter is passed through to the emulator (for example g=none, p=default).
+  Add mute=1 to keep it silent (nothing reaches the speakers).
   Set app=Ardens to load the full debugger instead of the player.
 -->
 <html>
@@ -42,6 +43,24 @@
 
     const BASE = 'https://tiberiusbrown.github.io/Ardens/';
     const query = new URLSearchParams(location.search);
+
+    // mute=1: nothing reaches the speakers (for testing while someone listens
+    // to something else): no sound node may connect to the output, and every
+    // audio context stays suspended
+    if (query.get('mute') === '1') {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const connect = AudioNode.prototype.connect;
+      AudioNode.prototype.connect = function (dest, ...rest) {
+        if (dest instanceof AudioDestinationNode) return dest;
+        return connect.call(this, dest, ...rest);
+      };
+      if (AC) {
+        AC.prototype.resume = function () { return Promise.resolve(); };
+        const Muted = function (...args) { const c = new AC(...args); c.suspend(); return c; };
+        Muted.prototype = AC.prototype;
+        window.AudioContext = window.webkitAudioContext = Muted;
+      }
+    }
     const app = query.get('app') || 'ArdensPlayer';
     window.ardensStatus = 'starting';
 
@@ -98,7 +117,7 @@
 
     Module.onRuntimeInitialized = function () {
       for (const [k, v] of query) {
-        if (['hex', 'bin', 'pkg', 'app', 'v', 'r', 'order'].includes(k)) continue;
+        if (['hex', 'bin', 'pkg', 'app', 'v', 'r', 'order', 'mute'].includes(k)) continue;
         Module.ccall('setparam', null, ['string', 'string'], [k, v]);
       }
       reloadGame().catch(e => { window.ardensStatus = 'error: ' + e.message; });

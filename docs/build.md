@@ -50,3 +50,11 @@ sources. A copy as it was built last is
 to supply: the flash chip, the buttons, the clock, the sound and the picture.
 What is written in assembly for the console (`render.S`, `fastmath.S`) has
 its counterpart in C++ in `engine.h`; the desktop build uses that.
+
+## The FX-C
+
+The same build runs on the FX-C and the Mini, whose flash chip hangs on PE2
+instead of PD1: the game looks on both when it starts, and on PE2 it begins
+with GRAYSCALE OFF. To try that wiring in the emulator, give
+`tools/package.py` `ArduboyMini` as its fourth argument; Ardens then puts the
+chip on PE2.

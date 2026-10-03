@@ -16,6 +16,13 @@
 // lets a slow 3D renderer run underneath a fast flicker-free display. It is
 // also what lets the display routine lay the arrow that shows the way over
 // the picture, in dots half as wide as the picture's own.
+//
+// The FX-C and the Mini are said to flicker with the four shades (their panel
+// does not keep in step the same way). For them, and for whoever prefers it,
+// the settings page has GRAYSCALE OFF: the same picture in two shades, the
+// two grey levels as patterns of dots (display.S, disp_mono), and the panel
+// scanning by itself as it does for any other game. The flash chip's select
+// line is found at start-up: PD1 on the FX, PE2 on the FX-C and the Mini.
 
 // The game as it is played has no USB connection. That and Arduino's start-up
 // code are 3.6 KB of program and 150 bytes of memory that the game has better
@@ -41,12 +48,14 @@ volatile uint16_t plane_ticks __attribute__((used));
 volatile uint8_t disp_plane __attribute__((used));
 volatile uint8_t disp_wide __attribute__((used));
 volatile uint8_t disp_nav __attribute__((used));
+volatile uint8_t disp_mono __attribute__((used));
 uint8_t nav_over[NAV_ARROW_BYTES] __attribute__((used));
 // second byte of the two "number of rows" commands the refresh sends, bit-reversed
 // like everything that goes to the panel: 64 rows to scan, 1 row to park
 volatile uint8_t disp_release __attribute__((used)) = 0xFC;
 volatile uint8_t disp_park __attribute__((used)) = 0x00;
 uint16_t fx_page;
+uint8_t flash_on_e;
 
 // shared with the assembly routines in render.S
 extern "C" {
@@ -76,14 +85,38 @@ static const uint8_t OLED_SETUP[] PROGMEM = {
 
 extern "C" uint16_t fx_vector_page(uint16_t dev_page);
 
+// Two shades: every third refresh sends the picture as it is, and the panel
+// is never parked (the "park" command says 64 rows as well), so it scans by
+// itself. Four shades: as described above.
+void display_shades(bool two) {
+  disp_mono = two;
+  disp_park = two ? 0xFC : 0x00;
+}
+
 void spi_send(uint8_t v) {
   spi_out(v);
 }
 
+// The chip's select line is PD1 (SDA) on the Arduboy FX and PE2 (HWB) on the
+// FX-C and the Mini, which keep SDA and SCL for the link cable. platform_init()
+// looks for our data on PD1 and then on PE2, and from then on only the line
+// it was found on is driven. Interrupts are off while the chip is selected:
+// the display shares the bus.
+static void flash_select() {
+  cli();
+  if (flash_on_e) PORTE &= ~_BV(FLASH_CS_BIT_E);
+  else PORTD &= ~_BV(FLASH_CS_BIT);
+}
+
+void fx_end() {
+  if (flash_on_e) PORTE |= _BV(FLASH_CS_BIT_E);
+  else PORTD |= _BV(FLASH_CS_BIT);
+  sei();
+}
+
 void fx_begin(uint24_t addr) {
   addr += (uint24_t)fx_page << 8;
-  cli();
-  PORTD &= ~_BV(FLASH_CS_BIT);
+  flash_select();
   spi_send(0x03);
   spi_send((uint8_t)(addr >> 16));
   spi_send((uint8_t)(addr >> 8));
@@ -101,11 +134,9 @@ void fx_read(uint24_t addr, uint8_t *to, uint8_t n) {
 }
 
 static void flash_wake() {
-  cli();
-  PORTD &= ~_BV(FLASH_CS_BIT);
+  flash_select();
   spi_send(0xAB);                   // leave power-down (the bootloader puts the chip to sleep)
-  PORTD |= _BV(FLASH_CS_BIT);
-  sei();
+  fx_end();
   _delay_ms(1);
 }
 
@@ -116,6 +147,37 @@ bool flash_ok() {
   if (a == 'S' && b == 'M') return true;
   flash_wake();
   return false;
+}
+
+// Is our data there with PE2 as the select line? Woken and asked the way
+// flash_wake() and flash_ok() do it, but PE2 is never driven high: to
+// deselect it is let go and pulled up, so the FX's HWB pin, held low on that
+// board, takes no load, while an FX-C's chip sees its line go high all the
+// same. (The way Pocket Stage's flash.h does it.)
+static void probe_e_select() {
+  PORTE &= ~_BV(FLASH_CS_BIT_E);
+  DDRE |= _BV(FLASH_CS_BIT_E);
+}
+
+static void probe_e_let_go() {
+  DDRE &= ~_BV(FLASH_CS_BIT_E);
+  PORTE |= _BV(FLASH_CS_BIT_E);
+}
+
+static bool flash_probe_e() {
+  probe_e_select();
+  spi_send(0xAB);
+  probe_e_let_go();
+  _delay_ms(1);
+  probe_e_select();
+  uint24_t addr = (uint24_t)fx_page << 8;         // FX_HEADER, which is 0
+  spi_send(0x03);
+  spi_send((uint8_t)(addr >> 16));
+  spi_send((uint8_t)(addr >> 8));
+  spi_send((uint8_t)addr);
+  uint8_t a = fx_next_fast(), b = fx_next_fast();
+  probe_e_let_go();
+  return a == 'S' && b == 'M';
 }
 
 // ------------------------------------------------------------------ what is kept
@@ -142,11 +204,6 @@ bool flash_ok() {
 static uint16_t save_page;         // where the 4 KB start, in pages
 static uint16_t save_next;         // where the next entry goes; 0: the place has to be wiped first
 static const uint8_t SAVE_KEY[4] PROGMEM = {'S', 'T', 'A', 1};
-
-static void flash_select() {
-  cli();
-  PORTD &= ~_BV(FLASH_CS_BIT);
-}
 
 // one command that changes what is on the chip: 0x02 writes a byte, 0x20 wipes 4 KB
 static void flash_change(uint8_t command, uint16_t at, int16_t value) {
@@ -181,6 +238,8 @@ void save_load() {
   if (pgm_read_word(0x18) == 0x9518) save_page = ((uint16_t)pgm_read_byte(0x1A) << 8) | pgm_read_byte(0x1B);
   // sound as the console has it, until the player says otherwise
   settings = eeprom_read_byte((const uint8_t *)2) ? SET_SOUND : 0;
+  // an FX-C or a Mini: two shades until the player says otherwise (the four are said to flicker there)
+  if (flash_on_e) settings |= SET_MONO;
   uint8_t e[SAVE_BYTES];
   save_read(0, e, 4);
   for (uint8_t i = 0; i < 4; i++)
@@ -251,6 +310,7 @@ static void link_poll() {
   link_value(F(" frames="), frames_total);
   link_value(F(" ticks="), ticks());
   link_value(F(" fail="), flash_fails);
+  link_value(F(" e2="), flash_on_e);
   link_value(F(" page="), fx_page);
   Serial.println();
 }
@@ -313,8 +373,9 @@ static void console_boot() {
   // no clock for what is not used: two-wire bus, converter
   PRR0 = _BV(PRTWI) | _BV(PRADC);
   // port B: button B (4), the light (5 blue, 6 red, 7 green; off is high),
-  // the SPI bus (1, 2 out; 3 in), the small light for "receiving" (0, off is high)
-  PORTB = _BV(4) | _BV(5) | _BV(6) | _BV(7) | _BV(0);
+  // the SPI bus (1, 2 out; 3 in, pulled up: where no chip answers, a read gives
+  // 0xFF), the small light for "receiving" (0, off is high)
+  PORTB = _BV(4) | _BV(5) | _BV(6) | _BV(7) | _BV(3) | _BV(0);
   DDRB = _BV(5) | _BV(6) | _BV(7) | _BV(2) | _BV(1) | _BV(0);
   // port D: the display (select high, reset low for now), the flash chip
   // (select high), the small light for "sending" (5, off is high)
@@ -355,15 +416,27 @@ void platform_init() {
   // the flash chip shares the SPI bus with the display: give each its own select
   PORTD |= _BV(FLASH_CS_BIT) | _BV(OLED_CS_BIT);
   DDRD |= _BV(FLASH_CS_BIT);
+  probe_e_let_go();                 // PE2 pulled up: an FX-C's chip stays out of it while PD1 is tried
   _delay_ms(1);
   flash_wake();
 
   fx_page = fx_vector_page(FX_DATA_PAGE);
-  // (it is asked here and never again: on the console it has always answered)
-  while (flash_fails < 20 && !flash_ok()) {
-    flash_fails++;
+  // Where is our data: on PD1 (the FX) or on PE2 (the FX-C, the Mini)? Asked
+  // here and never again. Twenty rounds, 5 ms apart; when nothing answers the
+  // game goes on as on the FX, as it always did.
+  for (;;) {
+    if (flash_ok()) break;                          // (wakes the chip again when it is not)
+    if (flash_probe_e()) {
+      DDRD &= ~_BV(FLASH_CS_BIT);                   // SDA let go: it goes to the link cable there
+      PORTD &= ~_BV(FLASH_CS_BIT);
+      DDRE |= _BV(FLASH_CS_BIT_E);                  // PE2 driven from now on
+      flash_on_e = 1;
+      break;
+    }
+    if (++flash_fails >= 20) break;
     _delay_ms(5);
   }
+  if (!flash_on_e) PORTE &= ~_BV(FLASH_CS_BIT_E);   // PE2 back as it was: an input without pull-up
   display_setup();
   refresh_period(PLANE_PERIOD);
   // the light: a quarter of its brightness, and off

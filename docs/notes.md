@@ -52,6 +52,11 @@ still meanwhile. The square that grows and shrinks is you.
 Anywhere: Up + Down, held 2 seconds, goes back to the console's game menu.
 The money is kept on the way out.
 
+**The settings** (A on the title page or the map): SOUND, POLICE LIGHT,
+GRAYSCALE and START OVER. GRAYSCALE OFF shows the game in two shades instead
+of four, for panels that flicker with the four; an FX-C or a Mini starts
+that way, an FX with the four. All of it is kept on the flash chip.
+
 The HUD, left to right: health, the stars, speed or a hint, the money. With a
 mission on: what the mission wants next instead of the speed, and the time
 that is left instead of the money.
@@ -283,6 +288,16 @@ on the flash chip.
 judge. If the picture flickers or shows bands on the real screen, that is the
 thing to report.
 
+**The FX-C and the Mini** (since 2026-10-03) run the same build. Their flash
+chip is selected by PE2 instead of PD1; the game looks for its data on PD1
+and then on PE2 when it starts, and drives only the line it found it on.
+Their panels are said to flicker with the four shades, so on them the game
+starts with GRAYSCALE OFF: two shades, the picture sent as it is every third
+refresh, the panel scanning by itself. Tried in the emulator on both wirings
+(`python3 tools/package.py <hex> <bin> <out> ArduboyMini` makes a package the
+emulator puts on PE2; an old build shows no title picture there), not on a
+real FX-C.
+
 ## Build
 
 ```bash
@@ -440,6 +455,7 @@ sounds thinner than that.
 | `tools/title.py`, `assets/title.png`, `assets/title_game.png` | The title picture, drawn dot by dot: for the console's menu (64 rows) and for the game (56 rows) |
 | `tools/arrows.py` | The arrow that shows the way, in 32 directions |
 | `host/` | Desktop test build |
+| `tools/lab/shades.py` | Draws the game in two shades from recorded scenes, every candidate dot pattern next to the four shades, for choosing one |
 | `tools/lab/` | Tools for measuring: `stack_depth.py` (how deep the stack can get, from the machine code), `size_map.py` (where the program space goes), `size_flags.py`, `size_trial.py`, `size_try.py` (what options of the compiler, changes to the sources and pieces of the program cost; `trials/RESULTS.md` has what was found), `same_asm.py` (are the routines that are timed by hand the same in two builds), `regress.py` (does the game still do what it did), `frames.py` and `sprite_look.py` (pictures out of a run, models as the game shows them), `console_do.py`, `console_go.py` and `console_spree.py` (play on the console from the computer, test build), `police_*.py` (how often the police comes, how a rampage goes, who gets away; many runs of the desktop build) |
 | `LICENSE` | The MIT licence: anybody may do with it what they like, as long as the notice with Joël Coster's name stays in |
 | `preview/` | The concept clip and a clip from the desktop build; `preview/source/` is what drew the concept clip |
@@ -507,6 +523,12 @@ sounds thinner than that.
   from Peter Brown's ArduboyG library. Unlike ArduboyG, the scene is drawn once
   into a 2-bit picture and the three pictures are derived from it while they are
   sent, which is what allows a slow 3D renderer underneath.
+- **Two shades** (GRAYSCALE OFF) come from the same picture: level 3 lit,
+  level 0 dark, level 2 a checkerboard over the two panel dots of a view dot
+  and two rows, level 1 the top left dot of those four. The display routine
+  sends that every third refresh and the panel is not parked, so it scans by
+  itself as it does for any other game. The clock ticks every refresh as
+  before.
 - **Pages are black and white and 128 dots wide.** The 3D view has dots twice
   as wide as high, which is no good for lettering or a map. For title, map
   and settings the display routine takes the same memory differently: of
@@ -630,19 +652,24 @@ sounds thinner than that.
 
 | | Used | Limit |
 |---|---|---|
-| Program | 26.2 KB | 29.7 KB |
-| Memory | 2142 bytes | 2560 bytes |
+| Program | 26.8 KB | 29.7 KB |
+| Memory | 2147 bytes | 2560 bytes |
 | Flash chip | 1.07 MB | 16 MB |
 
-The stack has the 418 bytes that the variables leave. Going by the machine
+The FX-C (one build for both consoles, two shades in the settings) took 596
+bytes of program and 5 of memory: the search for the chip's select line and
+the two lines it drives about 230, the two-shade display routines about 130,
+the settings line and the lettering ten rows apart about 140, the rest the
+calls that fx_end() became. The stack has the 413 bytes that the variables leave. Going by the machine
 code it needs 177 at the most (the deepest chain of calls, drawing a sprite,
 157; the display routine, 20 on top). On the console 234 bytes of it were
 never used.
 
 Milestone 4 was 28.2 KB with 1.5 KB to spare. Without the USB connection,
 with two options of the compiler and eight rewrites it came to 23.7 KB
-(`tools/lab/trials/RESULTS.md`); the missions took 2.5 KB of that. 3.5 KB are
-left. In reserve: a third option of the compiler (0.4 KB, 1.5% slower) and
+(`tools/lab/trials/RESULTS.md`); the missions took 2.5 KB of that, the FX-C
+0.6 KB. 2.9 KB are left. The `-DUSB_LINK` build (the game with a USB status
+line) no longer fits; `-DPROBE` does. In reserve: a third option of the compiler (0.4 KB, 1.5% slower) and
 half a sine table (0.2 KB, 1% slower).
 
 ## Roadmap

@@ -12,7 +12,9 @@
 //              want to go; back to the game, where an arrow shows the way.
 //              On the player's own place B takes the marker away: no arrow.
 //              A goes to the settings
-//   settings   UP and DOWN pick a line, B changes it, A goes back. The last
+//   settings   UP and DOWN pick a line, B changes it, A goes back. GRAYSCALE
+//              OFF shows the game in two shades instead of four, for panels
+//              that flicker with the four (an FX-C starts that way). The last
 //              line is START OVER: no money, no mission done, back to where
 //              the game begins. It asks once more before it does it
 //   mission    DOWN next to a telephone that rings: what the mission is, in
@@ -40,6 +42,7 @@ static uint8_t map_tick, map_wait; // when the cross moved last, and how many ti
 
 static void settings_apply() {
   sound_enable(settings & SET_SOUND);
+  display_shades(settings & SET_MONO);
 }
 
 // A picture on the flash chip, 7 bytes of it for every column of dots (it
@@ -175,9 +178,13 @@ static void page_open(uint8_t which) {
   }
 }
 
-static void setting_line(uint8_t band, const char *name, const char *is) {
-  text_band = band;
-  hud_char(20, page_pick == band - 3 ? '>' : ' ');
+// the lines of the settings page: ten rows apart, which is more air than the
+// bands of eight give, so every line sits a little further down in its band
+static void setting_line(uint8_t line, const char *name, const char *is) {
+  text_band = 2 + line;
+  text_shift = 1 + 2 * line;
+  text_mask = (uint16_t)0xFF << text_shift;
+  hud_char(20, page_pick == line ? '>' : ' ');
   hud_text(28, name);
   hud_text(92, is);
 }
@@ -226,18 +233,18 @@ static void page_frame(uint8_t btn, uint8_t fresh) {
       break;
     default:
       if (fresh & (BTN_UP | BTN_DOWN)) {
-        // three lines, round and round
-        page_pick += (fresh & BTN_DOWN) ? 1 : 2;
-        if (page_pick > 2) page_pick -= 3;
+        // four lines, round and round
+        page_pick += (fresh & BTN_DOWN) ? 1 : 3;
+        if (page_pick > 3) page_pick -= 4;
         page_sure = false;
       }
       if (fresh & BTN_B) {
-        if (page_pick == 2) {
+        if (page_pick == 3) {
           // (it cannot be undone: asked for twice, then done)
           if (page_sure) start_over();
           page_sure = !page_sure;
         } else {
-          settings ^= page_pick ? SET_LED : SET_SOUND;
+          settings ^= 1 << page_pick;          // SET_SOUND, SET_LED, SET_MONO: the lines in their order
           settings_apply();
         }
         sound_play(SOUND_CASH);
@@ -320,9 +327,11 @@ static void page_frame(uint8_t btn, uint8_t fresh) {
       text_band = 0;
       hud_text(48, PSTR("SETTINGS"));
       for (uint8_t x = 8; x < 120; x++) page_column(x)[1] = 0x04;
-      setting_line(3, PSTR("SOUND"), on_or_off(SET_SOUND));
-      setting_line(4, PSTR("POLICE LIGHT"), on_or_off(SET_LED));
-      setting_line(5, PSTR("START OVER"), page_sure ? PSTR("SURE?") : PSTR("     "));
+      setting_line(0, PSTR("SOUND"), on_or_off(SET_SOUND));
+      setting_line(1, PSTR("POLICE LIGHT"), on_or_off(SET_LED));
+      setting_line(2, PSTR("GRAYSCALE"), (settings & SET_MONO) ? PSTR("OFF") : PSTR("ON "));
+      setting_line(3, PSTR("START OVER"), page_sure ? PSTR("SURE?") : PSTR("     "));
+      text_shift = 0;
       text_band = 7;
       break;
   }

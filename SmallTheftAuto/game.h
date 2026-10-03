@@ -157,6 +157,8 @@ static uint8_t note;                // frames left of MISSION PASSED or MISSION 
 static uint8_t note_set;            // which of the two: the sprite set of its lettering
 static uint8_t page;                // what is on the screen: the game (0), or one of the pages (pages.h)
 static uint8_t text_band = 7;       // where lettering goes: a band of 8 rows of a page (0 to 6), or the HUD (7)
+static uint8_t text_shift;          // pages: so many rows further down (0 to 7), for lines that are not a band apart
+static uint16_t text_mask;          // the 8 rows a sign takes then, across the band's byte and the next one
 static Camera cam;
 static uint16_t cam_yaw;
 static int8_t cam_side;             // how far to the right of the player the camera is
@@ -354,7 +356,14 @@ static uint8_t hud_sign(uint8_t x, uint8_t i) {
     if (x > 127) continue;
     uint8_t v = pgm_read_byte(g + k);
     if (text_band == 7) hud[x] = v;
-    else page_column(x)[text_band] = v;
+    else if (!text_shift) page_column(x)[text_band] = v;
+    else {
+      // across two bytes of the column: the 8 rows from the shift down are written, the rest kept
+      uint8_t *p = page_column(x) + text_band;
+      uint16_t w = (uint16_t)v << text_shift;
+      p[0] = (p[0] & (uint8_t)~text_mask) | (uint8_t)w;
+      p[1] = (p[1] & (uint8_t)~(text_mask >> 8)) | (uint8_t)(w >> 8);
+    }
   }
   return x + 1;
 }
